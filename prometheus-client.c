@@ -8,14 +8,23 @@
 
 #include "prometheus-client.h"
 
+/* %zu became supported in MSVC starting VS2015 */
 #if (defined(_MSC_VER) && !defined(__INTEL_COMPILER)) || defined(__MINGW32__)
     #define SIZE_T_FMT "%Iu"
 #else
     #define SIZE_T_FMT "%zu"
 #endif
 
+/* if this code is compiled with cpp, warnings will be throwns because
+ * of the implicit casts */
 #define ZERO_ALLOC(Type, Count) (Type*)calloc(sizeof(Type), Count)
 #define ALLOC(Type, Count) (Type*)malloc(sizeof(Type) * Count)
+
+/* note regarding strdup:
+ * strdup is not posix. With c89, _GNU_SOURCE is needed. On MSVC,
+ * it's available. on std >= c99, it's available.
+ * For now, strdup is replaced with malloc + strlen
+ */
 
 pmc_metric_s* pmc_initialize(const char *jobname)
 {
