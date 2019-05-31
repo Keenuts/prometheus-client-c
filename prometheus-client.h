@@ -4,7 +4,13 @@
 #include <stdint.h>
 #include <unistd.h>
 
+/*
+ * this is the only function you need to implement.
+ * I will use this function to send the HTTP request.
+ * It can be a write to a socket, or a serial output, or anything.
+ */
 void pmc_output_data(const void *bytes, size_t size);
+
 
 typedef enum {
     PM_NONE,
