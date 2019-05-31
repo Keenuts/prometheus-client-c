@@ -59,24 +59,4 @@ void pmc_send_histogram(const char* jobname,
                         const float *buckets,
                         const float *values);
 
-#define LOG_METRIC(GroupName, MetricName, SampleInterval, MetricFetch)  \
-    do {                                                                \
-        static time_t __prom_last_sample_ ## MetricName = time(NULL);    \
-        if (time(NULL) - __prom_last_sample > SampleInterval) {         \
-            __prom_last_sample_ ## MetricName = time(NULL);              \
-            pmc_send_gauge(#GroupName, #MetricName, MetricFetch);           \
-        }                                                               \
-    } while (0)
-
-#define LOG_SIMPLE_METRIC_HIT(GroupName, MetricName)                          \
-    do {                                                                      \
-        static float __prom_metric_ ## MetricName = 0.f;                      \
-        pmc_send_gauge(#GroupName, #MetricName, ++__prom_metric_ ## MetricName); \
-    } while(0)
-
-#define LOG_MEMORY_USAGE(GroupName, SampleInterval)                         \
-    do {                                                                    \
-        LOG_METRIC(GroupName, "vsize", SampleInterval, pmc_get_memory_usage()); \
-    } while(0)
-
 #endif /* H_PROMETHEUS_CLIENT_ */
