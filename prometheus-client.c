@@ -1,8 +1,14 @@
+#if !defined(_GNU_SOURCE)
+    #define _GNU_SOURCE
+#endif
+
 #include <assert.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -25,6 +31,224 @@
  * it's available. on std >= c99, it's available.
  * For now, strdup is replaced with malloc + strlen
  */
+
+struct wbuffer {
+    char *ptr;
+    size_t usage;
+    size_t size;
+};
+
+/* wbuffer (write-buffer) is used as a replacement for tmpfile+fprintf.
+ * I had to change that to be able to use this tool on Android.
+ * (Some untrusted applications cannot have storage permissions, and
+ * tmpfile requires it.
+ * wbuffer requires a valid mmap/mremap/munmap implementation.
+ *
+ * FIXME: I do not have a windows machine right now to implement the
+ * variant for Windows. Might rework that bit later
+ */
+static const PAGE_SIZE = 4096;
+typedef struct wbuffer* wbuffer_t;
+
+static size_t align_page(size_t size)
+{
+    return (size + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
+}
+
+/* create a new wbuffer. This function MUST be called before using a wbuffer.
+ * PARAMETERS:
+ *   (none)
+ * RETURN VALUE:
+ *  NULL  -> wbuffer creation failed
+ *  other -> wbuffer is ready to be used
+ */
+static wbuffer_t wbuffer_create(void)
+{
+    wbuffer_t buffer = ZERO_ALLOC(struct wbuffer, 1);
+    if (NULL == buffer) {
+        return NULL;
+    }
+
+    void *ptr = mmap(NULL, PAGE_SIZE, PROT_WRITE | PROT_READ,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (MAP_FAILED == ptr) {
+        free(buffer);
+        return NULL;
+    }
+
+    buffer->usage = 0;
+    buffer->size = PAGE_SIZE - sizeof(*buffer);
+    buffer->ptr = (char*)ptr;
+
+    return buffer;
+}
+
+/* SHOULD NOT BE USED DIRECTLY.
+ * You should not have to use this function outside of wbuffer_* functions.
+ *
+ * This function will expand the wbuffer to fit at least *min_expansion* bytes
+ * FIXME: implement a variation for systems without mremap.
+ *
+ * PARAMETERS:
+ *   buffer: a previously created wbuffer_t
+ *   min_expansion: the minimum byte-size increment you need.
+ *
+ * RETURN VALUE:
+ *  -1 -> expansion failed. wbuffer is still valid and unchanged.
+ *   0 -> wbuffer size has been increased.
+ */
+static int wbuffer_expand(wbuffer_t buffer, size_t min_expansion)
+{
+    const size_t old_size = buffer->size + sizeof(*buffer);
+    const size_t new_size = align_page(old_size + min_expansion);
+    void *ptr = NULL;
+
+    assert(NULL != buffer);
+
+    ptr = mremap((void*)buffer->ptr, old_size, new_size, MREMAP_MAYMOVE);
+    if (MAP_FAILED == ptr) {
+        return -1;
+    }
+
+    buffer->size = new_size;
+    buffer->ptr = (char*)ptr;
+    return 0;
+}
+
+/*
+ * Analog to fprintf, but with a wbuffer. Except I do NOT accept NULL as *fmt*
+ * FIXME: check __va_copy/va_copy availability on other systems.
+ *
+ * PARAMETERS:
+ *   buffer: a previously created wbuffer_t
+ *   fmt: a non NULL, 0 terminated string. Forwarded to vsnprintf, so
+ *        same rules applies.
+ *   ...: variadic arguments forwarded to printf like function.
+ *
+ * RETURN VALUE:
+ *   res > 0 -> same return value as vsnprintf.
+ *   res < 0 -> en error occured, either in vsnprintf or while expanding wbuf.
+ */
+static int wbuffer_printf(wbuffer_t buffer, const char *fmt, ...)
+{
+    va_list args_count;
+    va_list args_write;
+    int res = 0;
+
+    assert(NULL != buffer);
+    assert(NULL != fmt);
+
+    va_start(args_count, fmt);
+    __va_copy(args_write, args_count);
+
+    do {
+        /* null byte IS counted here. We always write the null byte */
+        res = vsnprintf(NULL, 0, fmt, args_count) + 1;
+        if (res < 0) {
+            break;
+        }
+
+        if (buffer->usage + (size_t)res >= buffer->size) {
+            if (0 != wbuffer_expand(buffer, buffer->usage + (size_t)res)) {
+                res = -1;
+                break;
+            }
+        }
+
+        res = vsnprintf(buffer->ptr + buffer->usage, res, fmt, args_write);
+        if (res < 0) {
+            break;
+        }
+
+        /* null byte NOT counted here. We write it, but overwrite it in
+         * subsequent writes. */
+        buffer->usage += (size_t)res;
+    } while (0);
+
+    va_end(args_count);
+    va_end(args_write);
+    return res;
+}
+
+/* write *size* bytes from *data* to the wbuffer. This function does NOT
+ * append any 0 byte at the end.
+ *
+ * PARAMETERS:
+ *   buffer: a previously created wbuffer_t
+ *   data: a non-NULL pointer to the data to copy
+ *   size: size of data in bytes.
+ *
+ * RETURN VALUE:
+ *  -1 -> wbuffer expansion failed. Copy not done.
+ *   0 -> copy went well.
+ */
+static int wbuffer_write(wbuffer_t buffer, const void *data, size_t size)
+{
+    assert(NULL != buffer);
+    assert(NULL != data);
+
+    if (buffer->usage + size >= buffer->size) {
+        if (0 != wbuffer_expand(buffer, buffer->usage + size)) {
+            return -1;
+        }
+    }
+
+    memmove(buffer->ptr + buffer->usage, data, size);
+    buffer->usage += size;
+    return 0;
+}
+
+/* Get the current usage of the wbuffer. This returns the size of the
+ * valid data stored, not the whole buffer size.
+ *
+ * PARAMETERS:
+ *   buffer: a previously created wbuffer_t
+ *
+ * RETURN VALUE:
+ *  wbuffer usage in bytes. wbuffer does not guarantee a NULL byte is present
+ *  at the end of the valid data.
+ */
+static size_t wbuffer_get_length(wbuffer_t buffer)
+{
+    assert(NULL != buffer);
+    return buffer->usage;
+}
+
+/* Get the raw pointer to the underlying data storage. Write/Read operations
+ * to this pointer are allowed while in the range returned by
+ * wbuffer_get_length.
+ *
+ * PARAMETERS:
+ *   buffer: a previously created wbuffer_t
+ *
+ * RETURN VALUE:
+ *  the pointer to the underlying storage.
+ */
+static void* wbuffer_get_ptr(wbuffer_t buffer)
+{
+    assert(NULL != buffer);
+    return buffer->ptr;
+}
+
+/* destroy a previously created wbuf and all the underlying storages.
+ * Calling wbuffer_destroy twice with the same buffer is UB.
+ *
+ * FIXME: implement a variant for systems without munmap
+ *
+ * RETURN:
+ *  -1 -> wbuffer destruction failed. wbuffer remains unchanged.
+ *   0 -> wbuffer has been destroyed.
+ */
+static int wbuffer_destroy(wbuffer_t buffer)
+{
+    assert(NULL != buffer);
+    if (0 != munmap((void*)buffer->ptr, buffer->size)) {
+        return -1;
+    }
+
+    free(buffer);
+    return 0;
+}
 
 pmc_metric_s* pmc_initialize(const char *jobname)
 {
@@ -126,71 +350,63 @@ static void send_http_packet(const char *jobname, const char* body)
                  "Content-type: application/x-www-form-urlencoded\r\n" \
                  "Content-length: " SIZE_T_FMT "\r\n\r\n"
     size_t len;
-    char *out = NULL;
-    FILE *f = NULL;
+    wbuffer_t buffer = NULL;
 
-    f = tmpfile();
-    assert(NULL != f);
+    buffer = wbuffer_create();
+    assert(NULL != buffer);
 
     len = strlen(body);
-    fprintf(f, HTTP_FMT, jobname, len);
-    fwrite(body, len + 1, 1, f);
+    wbuffer_printf(buffer, HTTP_FMT, jobname, len);
+    wbuffer_write(buffer, body, len + 1);
 
-    len = (size_t)ftell(f);
-    rewind(f);
-
-    out = ALLOC(char, len);
-    fread(out, len, 1, f);
-    fclose(f);
-
-    pmc_output_data(out, len);
-    free(out);
+    len = wbuffer_get_length(buffer);
+    pmc_output_data(wbuffer_get_ptr(buffer), len);
+    wbuffer_destroy(buffer);
 }
 
-static void pmc_output_gauge(FILE *f, const char *jobname, struct pmc_item_gauge *it)
+static void pmc_output_gauge(wbuffer_t buffer, const char *jobname, struct pmc_item_gauge *it)
 {
-    fprintf(f, "# TYPE %s_%s gauge\n", jobname, it->name);
-    fprintf(f, "%s_%s %f\n", jobname, it->name, (double)it->value);
+    wbuffer_printf(buffer, "# TYPE %s_%s gauge\n", jobname, it->name);
+    wbuffer_printf(buffer, "%s_%s %f\n", jobname, it->name, (double)it->value);
 }
 
-static void pmc_output_histogram(FILE *f, const char *jobname, struct pmc_item_histogram *it)
+static void pmc_output_histogram(wbuffer_t buffer, const char *jobname, struct pmc_item_histogram *it)
 {
     float sum = 0.f;
     float count = 0.f;
     size_t i;
 
-    fprintf(f, "# TYPE %s_%s histogram\n", jobname, it->name);
+    wbuffer_printf(buffer, "# TYPE %s_%s histogram\n", jobname, it->name);
 
     for (i = 0; i < it->size; i++) {
         count += it->values[i];
-        fprintf(f, "%s_%s_bucket{le=\"%f\"} %f\n",
+        wbuffer_printf(buffer, "%s_%s_bucket{le=\"%f\"} %f\n",
             jobname, it->name, (double)it->buckets[i], (double)count
         );
         sum += it->values[i] * it->buckets[i];
     }
 
-    fprintf(f, "%s_%s_count %f\n", jobname, it->name, (double)count);
-    fprintf(f, "%s_%s_sum %f\n", jobname, it->name, (double)sum);
+    wbuffer_printf(buffer, "%s_%s_count %f\n", jobname, it->name, (double)count);
+    wbuffer_printf(buffer, "%s_%s_sum %f\n", jobname, it->name, (double)sum);
 }
 
 void pmc_send(pmc_metric_s *metric)
 {
-    FILE *f = NULL;
+    wbuffer_t buffer;
     struct pmc_item_list *head = NULL;
-    size_t body_size = 0;
-    char *body = NULL;
+    const char ZERO = 0;
 
-    f = tmpfile();
-    assert(NULL != f);
+    buffer = wbuffer_create();
+    assert(NULL != buffer);
 
     head = metric->head;
     while (head != NULL) {
         switch (head->type) {
             case PM_GAUGE:
-                pmc_output_gauge(f, metric->jobname, (struct pmc_item_gauge*)head);
+                pmc_output_gauge(buffer, metric->jobname, (struct pmc_item_gauge*)head);
                 break;
             case PM_HISTOGRAM:
-                pmc_output_histogram(f, metric->jobname, (struct pmc_item_histogram*)head);
+                pmc_output_histogram(buffer, metric->jobname, (struct pmc_item_histogram*)head);
                 break;
             case PM_TYPE_COUNT: /* fallthrough */
             case PM_NONE:       /* fallthrough */
@@ -200,16 +416,9 @@ void pmc_send(pmc_metric_s *metric)
         head = head->next;
     }
 
-    body_size = (size_t)ftell(f);
-    rewind(f);
-
-    body = ALLOC(char, body_size + 1);
-    fread(body, body_size, 1, f);
-    fclose(f);
-    body[body_size] = 0;
-
-    send_http_packet(metric->jobname, body);
-    free(body);
+    wbuffer_write(buffer, &ZERO, 1);
+    send_http_packet(metric->jobname, wbuffer_get_ptr(buffer));
+    wbuffer_destroy(buffer);
 }
 
 void pmc_destroy(pmc_metric_s *metric)
