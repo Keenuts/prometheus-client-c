@@ -1,4 +1,6 @@
-#define _GNU_SOURCE
+#if !defined(_GNU_SOURCE)
+    #define _GNU_SOURCE
+#endif
 
 #include <assert.h>
 #include <netdb.h>
