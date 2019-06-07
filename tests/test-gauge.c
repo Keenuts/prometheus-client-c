@@ -2,7 +2,7 @@
 
 int main()
 {
-    pmc_metric_s *m = NULL;
+    pmc_metric_s m = NULL;
 
     /* helper function for single gauge */
     pmc_send_gauge("test_gauge", "gauge", 0.5f);

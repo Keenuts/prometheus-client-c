@@ -28,38 +28,7 @@ int pmc_output_data(const void *bytes, size_t size);
  */
 void pmc_handle_error(enum pmc_error err);
 
-typedef enum {
-    PM_NONE,
-    PM_GAUGE,
-    PM_HISTOGRAM,
-    PM_TYPE_COUNT
-} pmc_type_e;
-
-struct pmc_item_list {
-    struct pmc_item_list *next;
-    pmc_type_e type;
-    char padding[4];
-};
-
-struct pmc_item_gauge {
-    struct pmc_item_list list;
-    char *name;
-    float value;
-    char padding[4];
-};
-
-struct pmc_item_histogram {
-    struct pmc_item_list list;
-    char *name;
-    size_t size;
-    float *buckets;
-    float *values;
-};
-
-typedef struct {
-    char *jobname;
-    struct pmc_item_list *head;
-} pmc_metric_s;
+typedef struct pmc_metric* pmc_metric_s;
 
 /* there is two methods to use this client:
  *  - using helper functions
@@ -92,7 +61,7 @@ void pmc_disable(void);
 /* BEGIN MANUAL API */
 
 /* initialize a metric set. Usually the first call */
-pmc_metric_s* pmc_initialize(const char *jobname);
+pmc_metric_s pmc_initialize(const char *jobname);
 
 /*
  * add a gauge to the metric set. Already existing gauge are not
@@ -103,7 +72,7 @@ pmc_metric_s* pmc_initialize(const char *jobname);
  *  name: the name of the metric. Valid characters: [A-Za-z0-9_] (not checked)
  *  value: the value of the metric.
  */
-int pmc_add_gauge(pmc_metric_s *m, const char* name, float value);
+int pmc_add_gauge(pmc_metric_s m, const char* name, float value);
 
 /*
  * add an histogram to the metric set. Already existing histograms are not
@@ -116,7 +85,7 @@ int pmc_add_gauge(pmc_metric_s *m, const char* name, float value);
  *  buckets: array of floats. Each entry represents 1 bucket.
  *  values: the number of values in each bucket. (Not the sum of the previous)
  */
-int pmc_add_histogram(pmc_metric_s *m,
+int pmc_add_histogram(pmc_metric_s m,
                       const char *name,
                       size_t size,
                       const float *buckets,
@@ -135,7 +104,7 @@ int pmc_add_histogram(pmc_metric_s *m,
  *  size: the number of buckets. Also the size of the two following arrays.
  *  values: the number of values in each bucket. (Not the sum of the previous)
  */
-int pmc_update_histogram(pmc_metric_s *m,
+int pmc_update_histogram(pmc_metric_s m,
                          const char *name,
                          size_t size,
                          const float *values);
@@ -147,13 +116,13 @@ int pmc_update_histogram(pmc_metric_s *m,
  *
  * metric : the metric to send, previously created with pmc_initialize
  */
-int pmc_send(pmc_metric_s *metric);
+int pmc_send(pmc_metric_s metric);
 
 /*
  * free a previously initialized metric set
  * metric : the metric to send, previously created with pmc_initialize
  */
-void pmc_destroy(pmc_metric_s *metric);
+void pmc_destroy(pmc_metric_s metric);
 
 /* BEGIN HELPER API */
 

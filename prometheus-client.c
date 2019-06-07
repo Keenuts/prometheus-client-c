@@ -38,6 +38,40 @@
  * For now, strdup is replaced with malloc + strlen
  */
 
+typedef enum {
+    PM_NONE,
+    PM_GAUGE,
+    PM_HISTOGRAM,
+    PM_TYPE_COUNT
+} pmc_type_e;
+
+struct pmc_item_list {
+    struct pmc_item_list *next;
+    pmc_type_e type;
+    char padding[4];
+};
+
+struct pmc_item_gauge {
+    struct pmc_item_list list;
+    char *name;
+    float value;
+    char padding[4];
+};
+
+struct pmc_item_histogram {
+    struct pmc_item_list list;
+    char *name;
+    size_t size;
+    float *buckets;
+    float *values;
+};
+
+struct pmc_metric {
+    char *jobname;
+    struct pmc_item_list *head;
+};
+
+
 struct wbuffer {
     char *ptr;
     size_t usage;
@@ -265,14 +299,14 @@ void pmc_disable(void)
     pmc_disabled = 1;
 }
 
-pmc_metric_s* pmc_initialize(const char *jobname)
+pmc_metric_s pmc_initialize(const char *jobname)
 {
-    pmc_metric_s *out = NULL;
+    pmc_metric_s out = NULL;
     size_t len;
 
     CHECK_KILLSWITCH(NULL);
 
-    out = ZERO_ALLOC(pmc_metric_s, 1);
+    out = ZERO_ALLOC(struct pmc_metric, 1);
     RET_ON_FALSE(NULL != out, PMC_ERROR_ALLOCATION, NULL);
 
     len = strlen(jobname) + 1;
@@ -288,7 +322,7 @@ pmc_metric_s* pmc_initialize(const char *jobname)
     return out;
 }
 
-int pmc_add_gauge(pmc_metric_s *m, const char* name, float value)
+int pmc_add_gauge(pmc_metric_s m, const char* name, float value)
 {
     struct pmc_item_gauge *item = NULL;
     char *str = NULL;
@@ -317,7 +351,7 @@ int pmc_add_gauge(pmc_metric_s *m, const char* name, float value)
     return 0;
 }
 
-int pmc_add_histogram(pmc_metric_s *m,
+int pmc_add_histogram(pmc_metric_s m,
                       const char *name,
                       size_t size,
                       const float *buckets,
@@ -365,7 +399,7 @@ int pmc_add_histogram(pmc_metric_s *m,
     return 0;
 }
 
-int pmc_update_histogram(pmc_metric_s *m,
+int pmc_update_histogram(pmc_metric_s m,
                          const char *name,
                          size_t size,
                          const float *values)
@@ -478,7 +512,7 @@ static int pmc_output_histogram(wbuffer_t buffer, const char *jobname, struct pm
     return 0;
 }
 
-int pmc_send(pmc_metric_s *metric)
+int pmc_send(pmc_metric_s metric)
 {
     wbuffer_t buffer;
     struct pmc_item_list *head = NULL;
@@ -522,7 +556,7 @@ int pmc_send(pmc_metric_s *metric)
     return 0;
 }
 
-void pmc_destroy(pmc_metric_s *metric)
+void pmc_destroy(pmc_metric_s metric)
 {
     struct pmc_item_list *head = NULL;
     struct pmc_item_list *next = NULL;
@@ -569,7 +603,7 @@ void pmc_destroy(pmc_metric_s *metric)
 int pmc_send_gauge(const char* job_name, const char* name, float value)
 {
     int res;
-    pmc_metric_s *m = NULL;
+    pmc_metric_s m = NULL;
 
     CHECK_KILLSWITCH(0);
 
@@ -593,7 +627,7 @@ int pmc_send_histogram(const char* jobname,
                        const float *values)
 {
     int res;
-    pmc_metric_s *m = NULL;
+    pmc_metric_s m = NULL;
 
     CHECK_KILLSWITCH(0);
 
