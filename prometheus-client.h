@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 enum pmc_error {
     PMC_ERROR_ALLOCATION,
     PMC_ERROR_OUTPUT,
@@ -153,5 +157,9 @@ int pmc_send_histogram(const char* jobname,
                        size_t size,
                        const float *buckets,
                        const float *values);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* H_PROMETHEUS_CLIENT_ */
