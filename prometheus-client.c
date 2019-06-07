@@ -50,6 +50,10 @@ struct wbuffer {
 static const PAGE_SIZE = 4096;
 typedef struct wbuffer* wbuffer_t;
 
+static int pmc_disabled = 0;
+#define CHECK_KILLSWITCH(...) \
+    if (0 != pmc_disabled) return __VA_ARGS__
+
 static size_t align_page(size_t size)
 {
     return (size + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
@@ -250,10 +254,17 @@ static int wbuffer_destroy(wbuffer_t buffer)
     return 0;
 }
 
+void pmc_disable(void)
+{
+    pmc_disabled = 1;
+}
+
 pmc_metric_s* pmc_initialize(const char *jobname)
 {
     pmc_metric_s *out = NULL;
     size_t len;
+
+    CHECK_KILLSWITCH(NULL);
 
     out = ZERO_ALLOC(pmc_metric_s, 1);
     assert(NULL != out);
@@ -270,6 +281,8 @@ void pmc_add_gauge(pmc_metric_s *m, const char* name, float value)
 {
     struct pmc_item_gauge *item = NULL;
     size_t len;
+
+    CHECK_KILLSWITCH();
 
     item = ZERO_ALLOC(struct pmc_item_gauge, 1);
     assert(NULL != item);
@@ -295,6 +308,8 @@ void pmc_add_histogram(pmc_metric_s *m,
 {
     struct pmc_item_histogram *item = NULL;
     size_t len;
+
+    CHECK_KILLSWITCH();
 
     item = ZERO_ALLOC(struct pmc_item_histogram, 1);
     assert(NULL != item);
@@ -326,6 +341,8 @@ void pmc_update_histogram(pmc_metric_s *m,
 {
     struct pmc_item_list *it = NULL;
     struct pmc_item_histogram *item = NULL;
+
+    CHECK_KILLSWITCH();
 
     it = m->head;
 
@@ -396,6 +413,8 @@ void pmc_send(pmc_metric_s *metric)
     struct pmc_item_list *head = NULL;
     const char ZERO = 0;
 
+    CHECK_KILLSWITCH();
+
     buffer = wbuffer_create();
     assert(NULL != buffer);
 
@@ -427,6 +446,12 @@ void pmc_destroy(pmc_metric_s *metric)
     struct pmc_item_list *next = NULL;
     struct pmc_item_gauge *g = NULL;
     struct pmc_item_histogram *h = NULL;
+
+    CHECK_KILLSWITCH();
+
+    if (NULL == metric) {
+        return;
+    }
 
     head = metric->head;
     while (head != NULL) {
@@ -461,6 +486,8 @@ void pmc_destroy(pmc_metric_s *metric)
 
 void pmc_send_gauge(const char* job_name, const char* name, float value)
 {
+    CHECK_KILLSWITCH();
+
     pmc_metric_s *m = pmc_initialize(job_name);
     pmc_add_gauge(m, name, value);
     pmc_send(m);
@@ -473,6 +500,8 @@ void pmc_send_histogram(const char* jobname,
                         const float *buckets,
                         const float *values)
 {
+    CHECK_KILLSWITCH();
+
     pmc_metric_s *m = pmc_initialize(jobname);
     pmc_add_histogram(m, name, size, buckets, values);
     pmc_send(m);

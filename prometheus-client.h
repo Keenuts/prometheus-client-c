@@ -53,6 +53,26 @@ typedef struct {
  *  manual API allow metrics batching, histogram update and so on.
  */
 
+/* KILL-SWITCH:
+ * when an error occurs in pmc_* functions, the pmc_handle_error
+ * function is called.
+ * User can handle/log the error. In some cases, we might want to
+ * disable the pmc_client completely.
+ *
+ * Calling the kill-switch function will disable the following functions:
+ * - pmc_initialize      -> will always return NULL.
+ * - pmc_destroy         -> will free every metrics passed.
+ *
+ * - pmc_send            -> will do nothing, accepts NULL
+ * - pmc_add_gauge       -> will do nothing, accepts NULL
+ * - pmc_add_histogram   -> will do nothing, accepts NULL
+ * - pmc_update_hisogram -> will do nothing, accepts NULL
+ * - pmc_send_gauge      -> will do nothing, accepts NULL
+ * - pmc_send_histogram  -> will do nothing, accepts NULL
+ */
+void pmc_disable(void);
+
+
 /* BEGIN MANUAL API */
 
 /* initialize a metric set. Usually the first call */
