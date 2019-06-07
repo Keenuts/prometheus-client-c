@@ -26,6 +26,12 @@
 #define ZERO_ALLOC(Type, Count) (Type*)calloc(sizeof(Type), Count)
 #define ALLOC(Type, Count) (Type*)malloc(sizeof(Type) * Count)
 
+#define RET_ON_FALSE(Cond, Err, ...) \
+    if (!(Cond)) {                   \
+        pmc_handle_error(Err);       \
+        return __VA_ARGS__;          \
+    }
+
 /* note regarding strdup:
  * strdup is not posix. With c89, _GNU_SOURCE is needed. On MSVC,
  * it's available. on std >= c99, it's available.
@@ -267,64 +273,88 @@ pmc_metric_s* pmc_initialize(const char *jobname)
     CHECK_KILLSWITCH(NULL);
 
     out = ZERO_ALLOC(pmc_metric_s, 1);
-    assert(NULL != out);
+    RET_ON_FALSE(NULL != out, PMC_ERROR_ALLOCATION, NULL);
 
     len = strlen(jobname) + 1;
     out->jobname = ALLOC(char, len);
-    assert(NULL != out->jobname);
+    if (NULL == out) {
+        free(out);
+        pmc_handle_error(PMC_ERROR_ALLOCATION);
+        return NULL;
+    }
+
     memcpy(out->jobname, jobname, len);
 
     return out;
 }
 
-void pmc_add_gauge(pmc_metric_s *m, const char* name, float value)
+int pmc_add_gauge(pmc_metric_s *m, const char* name, float value)
 {
     struct pmc_item_gauge *item = NULL;
+    char *str = NULL;
     size_t len;
 
-    CHECK_KILLSWITCH();
-
-    item = ZERO_ALLOC(struct pmc_item_gauge, 1);
-    assert(NULL != item);
-
+    CHECK_KILLSWITCH(0);
 
     len = strlen(name) + 1;
-    item->name = ALLOC(char, len);
-    assert(NULL != item->name);
-    memcpy(item->name, name, len);
+    item = ZERO_ALLOC(struct pmc_item_gauge, 1);
+    str = ALLOC(char, len);
 
+    if (NULL == item || NULL == str) {
+        free(item);
+        free(str);
+        pmc_handle_error(PMC_ERROR_ALLOCATION);
+        return -1;
+    }
+
+    memcpy(str, name, len);
+
+    item->name = str;
     item->value = value;
-
     item->list.next = m->head;
     item->list.type = PM_GAUGE;
     m->head = &item->list;
+    return 0;
 }
 
-void pmc_add_histogram(pmc_metric_s *m,
-                       const char *name,
-                       size_t size,
-                       const float *buckets,
-                       const float *values)
+int pmc_add_histogram(pmc_metric_s *m,
+                      const char *name,
+                      size_t size,
+                      const float *buckets,
+                      const float *values)
 {
     struct pmc_item_histogram *item = NULL;
+    char *str = NULL;
     size_t len;
 
-    CHECK_KILLSWITCH();
-
-    item = ZERO_ALLOC(struct pmc_item_histogram, 1);
-    assert(NULL != item);
+    CHECK_KILLSWITCH(0);
 
     len = strlen(name) + 1;
-    item->name = ALLOC(char, len);
-    assert(NULL != item->name);
-    memcpy(item->name, name, len);
+    item = ZERO_ALLOC(struct pmc_item_histogram, 1);
+    str = ALLOC(char, len);
 
+    if (NULL == item || NULL == str) {
+        free(item);
+        free(str);
+        pmc_handle_error(PMC_ERROR_ALLOCATION);
+        return -1;
+    }
+
+    memcpy(str, name, len);
+
+    item->name = str;
     item->size = size;
     item->values = ALLOC(float, size);
     item->buckets = ALLOC(float, size);
-    assert(NULL != item->name);
-    assert(NULL != item->values);
-    assert(NULL != item->buckets);
+
+    if (NULL == item->values || NULL == item->buckets) {
+        free(item->values);
+        free(item->buckets);
+        free(item->name);
+        free(item);
+        pmc_handle_error(PMC_ERROR_ALLOCATION);
+        return -1;
+    }
 
     memcpy(item->values, values, size * sizeof(float));
     memcpy(item->buckets, buckets, size * sizeof(float));
@@ -332,17 +362,18 @@ void pmc_add_histogram(pmc_metric_s *m,
     item->list.next = m->head;
     item->list.type = PM_HISTOGRAM;
     m->head = &item->list;
+    return 0;
 }
 
-void pmc_update_histogram(pmc_metric_s *m,
-                          const char *name,
-                          size_t size,
-                          const float *values)
+int pmc_update_histogram(pmc_metric_s *m,
+                         const char *name,
+                         size_t size,
+                         const float *values)
 {
     struct pmc_item_list *it = NULL;
     struct pmc_item_histogram *item = NULL;
 
-    CHECK_KILLSWITCH();
+    CHECK_KILLSWITCH(0);
 
     it = m->head;
 
@@ -353,13 +384,14 @@ void pmc_update_histogram(pmc_metric_s *m,
         }
 
         memcpy(item->values, values, size * sizeof(float));
-        return;
+        return 0;
     }
 
-    assert(0);
+    pmc_handle_error(PMC_ERROR_INVALID_KEY);
+    return -1;
 }
 
-static void send_http_packet(const char *jobname, const char* body)
+static int send_http_packet(const char *jobname, const char* body)
 {
 #define HOSTNAME "127.0.0.1"
 #define HTTP_FMT "POST /metrics/job/%s HTTP/1.0\r\n"                   \
@@ -367,77 +399,127 @@ static void send_http_packet(const char *jobname, const char* body)
                  "Content-type: application/x-www-form-urlencoded\r\n" \
                  "Content-length: " SIZE_T_FMT "\r\n\r\n"
     size_t len;
+    int res = -1;
     wbuffer_t buffer = NULL;
 
     buffer = wbuffer_create();
-    assert(NULL != buffer);
+    if (NULL == buffer) {
+        pmc_handle_error(PMC_ERROR_ALLOCATION);
+        return -1;
+    }
 
-    len = strlen(body);
-    wbuffer_printf(buffer, HTTP_FMT, jobname, len);
-    wbuffer_write(buffer, body, len + 1);
+    do {
+        len = strlen(body);
+        if (0 > wbuffer_printf(buffer, HTTP_FMT, jobname, len)) {
+            break;
+        }
 
-    len = wbuffer_get_length(buffer);
-    pmc_output_data(wbuffer_get_ptr(buffer), len);
+        if (0 > wbuffer_write(buffer, body, len + 1)) {
+            break;
+        }
+
+        len = wbuffer_get_length(buffer);
+        if (0 != pmc_output_data(wbuffer_get_ptr(buffer), len)) {
+            break;
+        }
+
+        res = 0;
+    } while (0);
+
+    if (0 != res) {
+        pmc_handle_error(PMC_ERROR_OUTPUT);
+    }
+
     wbuffer_destroy(buffer);
+    return res;
 }
 
-static void pmc_output_gauge(wbuffer_t buffer, const char *jobname, struct pmc_item_gauge *it)
+static int pmc_output_gauge(wbuffer_t buffer, const char *jobname, struct pmc_item_gauge *it)
 {
-    wbuffer_printf(buffer, "# TYPE %s_%s gauge\n", jobname, it->name);
-    wbuffer_printf(buffer, "%s_%s %f\n", jobname, it->name, (double)it->value);
+    int res;
+
+    res = wbuffer_printf(buffer, "# TYPE %s_%s gauge\n", jobname, it->name);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
+    res = wbuffer_printf(buffer, "%s_%s %f\n", jobname, it->name,
+                         (double)it->value);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
+    return 0;
 }
 
-static void pmc_output_histogram(wbuffer_t buffer, const char *jobname, struct pmc_item_histogram *it)
+static int pmc_output_histogram(wbuffer_t buffer, const char *jobname, struct pmc_item_histogram *it)
 {
+    int res;
     float sum = 0.f;
     float count = 0.f;
     size_t i;
 
-    wbuffer_printf(buffer, "# TYPE %s_%s histogram\n", jobname, it->name);
+    res = wbuffer_printf(buffer, "# TYPE %s_%s histogram\n", jobname, it->name);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
 
     for (i = 0; i < it->size; i++) {
         count += it->values[i];
-        wbuffer_printf(buffer, "%s_%s_bucket{le=\"%f\"} %f\n",
-            jobname, it->name, (double)it->buckets[i], (double)count
-        );
+        res = wbuffer_printf(buffer, "%s_%s_bucket{le=\"%f\"} %f\n",
+                             jobname, it->name, (double)it->buckets[i],
+                             (double)count);
+        RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
         sum += it->values[i] * it->buckets[i];
     }
 
-    wbuffer_printf(buffer, "%s_%s_count %f\n", jobname, it->name, (double)count);
-    wbuffer_printf(buffer, "%s_%s_sum %f\n", jobname, it->name, (double)sum);
+    res = wbuffer_printf(buffer, "%s_%s_count %f\n", jobname, it->name,
+                         (double)count);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
+    res = wbuffer_printf(buffer, "%s_%s_sum %f\n", jobname, it->name,
+                         (double)sum);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+    return 0;
 }
 
-void pmc_send(pmc_metric_s *metric)
+int pmc_send(pmc_metric_s *metric)
 {
     wbuffer_t buffer;
     struct pmc_item_list *head = NULL;
     const char ZERO = 0;
+    int res;
 
-    CHECK_KILLSWITCH();
+    CHECK_KILLSWITCH(0);
 
     buffer = wbuffer_create();
-    assert(NULL != buffer);
+    RET_ON_FALSE(NULL != buffer, PMC_ERROR_ALLOCATION, -1);
 
     head = metric->head;
     while (head != NULL) {
         switch (head->type) {
             case PM_GAUGE:
-                pmc_output_gauge(buffer, metric->jobname, (struct pmc_item_gauge*)head);
+                res = pmc_output_gauge(buffer, metric->jobname,
+                                       (struct pmc_item_gauge*)head);
+                RET_ON_FALSE(0 >= res, PMC_ERROR_OUTPUT, -1);
                 break;
             case PM_HISTOGRAM:
-                pmc_output_histogram(buffer, metric->jobname, (struct pmc_item_histogram*)head);
+                res = pmc_output_histogram(buffer, metric->jobname,
+                                           (struct pmc_item_histogram*)head);
+                RET_ON_FALSE(0 >= res, PMC_ERROR_OUTPUT, -1);
                 break;
             case PM_TYPE_COUNT: /* fallthrough */
             case PM_NONE:       /* fallthrough */
-                assert(0);
+                assert(0); /* implementation safeguard */
                 break;
         }
         head = head->next;
     }
 
-    wbuffer_write(buffer, &ZERO, 1);
-    send_http_packet(metric->jobname, wbuffer_get_ptr(buffer));
-    wbuffer_destroy(buffer);
+    res = wbuffer_write(buffer, &ZERO, 1);
+    RET_ON_FALSE(0 >= res, PMC_ERROR_OUTPUT, -1);
+    res = send_http_packet(metric->jobname, wbuffer_get_ptr(buffer));
+    RET_ON_FALSE(0 >= res, PMC_ERROR_OUTPUT, -1);
+
+    res = wbuffer_destroy(buffer);
+    RET_ON_FALSE(0 >= res, PMC_ERROR_ALLOCATION, -1);
+
+    return 0;
 }
 
 void pmc_destroy(pmc_metric_s *metric)
@@ -472,7 +554,7 @@ void pmc_destroy(pmc_metric_s *metric)
             break;
         case PM_TYPE_COUNT: /* fallthrough */
         case PM_NONE:       /* fallthrough */
-            assert(0);
+            assert(0); /* implementation safeguard */
             break;
         }
 
@@ -484,26 +566,46 @@ void pmc_destroy(pmc_metric_s *metric)
 }
 
 
-void pmc_send_gauge(const char* job_name, const char* name, float value)
+int pmc_send_gauge(const char* job_name, const char* name, float value)
 {
-    CHECK_KILLSWITCH();
+    int res;
+    pmc_metric_s *m = NULL;
 
-    pmc_metric_s *m = pmc_initialize(job_name);
-    pmc_add_gauge(m, name, value);
-    pmc_send(m);
+    CHECK_KILLSWITCH(0);
+
+    m = pmc_initialize(job_name);
+    RET_ON_FALSE(NULL != m, PMC_ERROR_ALLOCATION, -1);
+
+    res = pmc_add_gauge(m, name, value);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
+    res = pmc_send(m);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
     pmc_destroy(m);
+    return 0;
 }
 
-void pmc_send_histogram(const char* jobname,
-                        const char* name,
-                        size_t size,
-                        const float *buckets,
-                        const float *values)
+int pmc_send_histogram(const char* jobname,
+                       const char* name,
+                       size_t size,
+                       const float *buckets,
+                       const float *values)
 {
-    CHECK_KILLSWITCH();
+    int res;
+    pmc_metric_s *m = NULL;
 
-    pmc_metric_s *m = pmc_initialize(jobname);
-    pmc_add_histogram(m, name, size, buckets, values);
-    pmc_send(m);
+    CHECK_KILLSWITCH(0);
+
+    m = pmc_initialize(jobname);
+    RET_ON_FALSE(NULL != m, PMC_ERROR_ALLOCATION, -1);
+
+    res = pmc_add_histogram(m, name, size, buckets, values);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
+    res = pmc_send(m);
+    RET_ON_FALSE(res >= 0, PMC_ERROR_OUTPUT, -1);
+
     pmc_destroy(m);
+    return 0;
 }
