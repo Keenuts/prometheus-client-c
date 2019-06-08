@@ -11,10 +11,10 @@ int main()
     size_t len = static_cast<size_t>(&__stop_test_fptrs - &__start_test_fptrs);
 
     for (size_t i = 0; i < len; i++) {
-        init_mock();
+        mock_init();
         fprintf(stderr, "executing %s\n", names[i]);
         func[i]();
-        deinit_mock();
+        mock_deinit();
     }
 
     return 0;
