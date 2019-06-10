@@ -16,8 +16,18 @@ typedef enum {
     MT_GAUGE
 } mtype_e;
 
+struct Histogram
+{
+    std::string name;
+    float count_;
+    float sum_;
+    std::vector<float> buckets_;
+    std::vector<float> values_;
+};
+
 static std::unordered_map<std::string, std::pair<mtype_e, float>> *metrics_store;
 static std::unordered_map<std::string, float> *gauges;
+static std::unordered_map<std::string, Histogram> *histograms;
 
 void mock_init()
 {
@@ -31,14 +41,34 @@ void mock_deinit()
     delete gauges;
 }
 
-float mock_get_gauge(std::string name)
+float mock_gauge_get_value(std::string name)
 {
     return (*gauges)[name];
 }
 
-size_t mock_get_gauge_count()
+size_t mock_count_gauges()
 {
     return gauges->size();
+}
+
+float mock_histogram_get_bucket(std::string name, float bucket)
+{
+    return 0;
+}
+
+size_t mock_histogram_count_buckets(std::string name)
+{
+    return 0;
+}
+
+size_t mock_histogram_count_buckets(std::string name)
+{
+    return 0;
+}
+
+size_t mock_count_histograms()
+{
+    return histograms->size();
 }
 
 static mtype_e string2mtype(std::string s)
@@ -52,49 +82,91 @@ static mtype_e string2mtype(std::string s)
     return MT_INVALID;
 }
 
+static bool parse_histogram(std::list<std::string>& body)
+{
+    const std::regex re_metric_histo_bucket("([A-Za-z0-9_]+)\\{le=\"([0-9\\.]+)\"\\} +([0-9\\.]+)");
+    const std::regex re_metric_histo_count("([A-Za-z0-9_]+)_count +([0-9.]+)$");
+    const std::regex re_metric_histo_sum("([A-Za-z0-9_]+)_sum +([0-9.]+)$");
+    std::smatch match;
+
+    std::string line = body.front();
+    body.pop_front();
+    bool has_bucket = false;
+    bool has_count = false;
+    bool has_sum = false;
+
+    do {
+        if (std::regex_match(line, match, re_metric_histo_bucket)) {
+            has_bucket = true;
+        }
+        else if (std::regex_match(line, match, re_metric_histo_count)) {
+            has_count = true;
+        }
+        else if (std::regex_match(line, match, re_metric_histo_sum)) {
+            has_sum = true;
+        }
+        else {
+            fprintf(stderr, "error at '%s': invalid histogram.\n", line.c_str());
+            return false;
+        }
+
+        line = body.front();
+        body.pop_front();
+    } while (body.size() > 0 && !(has_bucket && has_count && has_sum));
+
+    return true;
+}
+
+static bool parse_gauge(std::list<std::string>& body)
+{
+    const std::regex re_metric_gauge("([A-Za-z0-9_]+) +([0-9.]+)$");
+    std::smatch match;
+    std::string line = body.front();
+    body.pop_front();
+
+    bool res = std::regex_match(line, match, re_metric_gauge);
+    if (false == res || 3 != match.size()) {
+        fprintf(stderr, "error at '%s': invalid gauge.\n", line.c_str());
+        return false;
+    }
+
+    (*gauges)[match[1].str()] = std::stof(match[2]);
+    return true;
+}
+
 static bool parse_metrics(std::list<std::string>& body)
 {
     const std::regex re_metric_type("# TYPE ([A-Za-z0-9_]+) (histogram|gauge)");
-    //const std::regex re_metric_value("([A-Za-z0-9_]+)(\\{le=\"[0-9\\.]+\"\\})? +[0-9\\.]+");
-    const std::regex re_metric_gauge("([A-Za-z0-9_]+) +([0-9.]+)$");
     std::smatch match;
 
-    std::vector<std::pair<std::string, float>> untyped;
-    std::unordered_map<std::string, mtype_e> types;
+    bool result = true;
+    mtype_e type = MT_INVALID;
 
-    /* step 1: get all types */
-    for (auto it = body.begin(); it != body.end(); ) {
-        std::string& line = *it;
+    while (body.size() > 0 && result) {
+        std::string line = body.front();
+        body.pop_front();
+
         if (false == std::regex_match(line, match, re_metric_type)) {
-            it++;
-            continue;
+            fprintf(stderr, "error at '%s': expected type.\n", line.c_str());
+            return false;
         }
 
-        ASSERT_TRUE(match.size() == 3);
-        mtype_e type = string2mtype(match[2]);
-        ASSERT_TRUE(type != MT_INVALID);
-        types.insert(std::make_pair(match[1], type));
-        it = body.erase(it);
+        type = string2mtype(match[2]);
+
+        switch (type) {
+        case MT_HISTOGRAM:
+            result = parse_histogram(body);
+            break;
+        case MT_GAUGE:
+            result = parse_gauge(body);
+            break;
+        case MT_INVALID: /* fallthrough */
+            fprintf(stderr, "error at '%s': invalid type.\n", line.c_str());
+            return false;
+        }
     }
 
-    /* step 2: parse the gauges */
-    for (auto it = body.begin(); it != body.end(); ) {
-        std::string& line = *it;
-        if (false == std::regex_match(line, match, re_metric_gauge)) {
-            it++;
-            continue;
-        }
-
-        ASSERT_TRUE(match.size() == 3);
-        if (types.count(match[1]) == 1) {
-            (*gauges)[match[1].str()] = std::stof(match[2]);
-        } else {
-            untyped.emplace_back(std::make_pair(match[1].str(), std::stof(match[2])));
-        }
-        it = body.erase(it);
-    }
-
-    return true;
+    return result;
 }
 
 struct http_hdr {
@@ -184,7 +256,6 @@ void pmc_output_data(const void *bytes, size_t size)
 
     struct http_hdr hdr;
     ASSERT_TRUE(parse_http(buffer, &hdr, body));
-
     ASSERT_TRUE(hdr.is_post);
     ASSERT_TRUE(body.size() > 0);
 

@@ -1,7 +1,7 @@
 CXX = clang++
-CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -Weverything -I../ \
+CXXFLAGS = -std=c++17 -Wall -Wextra -Weverything -I../ \
            -Wno-c++98-compat-pedantic -Wno-old-style-cast -Wno-unused-variable \
-		   -Wno-missing-variable-declarations
+		   -Wno-missing-variable-declarations -g -O0
 CFLAGS += -I../
 LDLIBS=
 
