@@ -7,7 +7,7 @@ CREATE_TEST(gauge, simple_send)
     /* helper function for single gauge */
     pmc_send_gauge("test_gauge", "gauge", 0.5f);
 
-    assert_eq(mock_get_gauge("test_gauge_gauge"), 0.5f);
+    assert_eq(mock_gauge_get_value("test_gauge_gauge"), 0.5f);
 }
 
 CREATE_TEST(gauge, simple_manual)
@@ -22,7 +22,7 @@ CREATE_TEST(gauge, simple_manual)
     pmc_send(m);
     pmc_destroy(m);
 
-    assert_eq(mock_get_gauge_count(), 2UL);
-    assert_eq(mock_get_gauge("test_gauge_gauge_1"), 0.6f);
-    assert_eq(mock_get_gauge("test_gauge_gauge_2"), 3.0f);
+    assert_eq(mock_gauge_get_count(), 2UL);
+    assert_eq(mock_gauge_get_value("test_gauge_gauge_1"), 0.6f);
+    assert_eq(mock_gauge_get_value("test_gauge_gauge_2"), 3.0f);
 }

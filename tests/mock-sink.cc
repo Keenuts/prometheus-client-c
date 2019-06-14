@@ -46,27 +46,27 @@ float mock_gauge_get_value(std::string name)
     return (*gauges)[name];
 }
 
-size_t mock_count_gauges()
+size_t mock_gauge_get_count()
 {
     return gauges->size();
 }
 
 float mock_histogram_get_bucket(std::string name, float bucket)
 {
+    (void)name;
+    (void)bucket;
+
     return 0;
 }
 
 size_t mock_histogram_count_buckets(std::string name)
 {
+    (void)name;
+
     return 0;
 }
 
-size_t mock_histogram_count_buckets(std::string name)
-{
-    return 0;
-}
-
-size_t mock_count_histograms()
+size_t mock_histogram_get_count()
 {
     return histograms->size();
 }
@@ -247,7 +247,7 @@ static bool parse_http(char *input,
     return has_hostname && has_content_length && has_content_type;
 }
 
-void pmc_output_data(const void *bytes, size_t size)
+int pmc_output_data(const void *bytes, size_t size)
 {
     char *buffer = (char*)malloc(sizeof(char) * size + 1);
     std::list<std::string> body;
@@ -262,4 +262,6 @@ void pmc_output_data(const void *bytes, size_t size)
     ASSERT_TRUE(parse_metrics(body));
 
     free(buffer);
+
+    return 0;
 }
