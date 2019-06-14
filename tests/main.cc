@@ -12,8 +12,9 @@ int main()
 
     for (size_t i = 0; i < len; i++) {
         mock_init();
-        fprintf(stderr, "executing %s\n", names[i]);
+        fprintf(stderr, "executing %s...", names[i]);
         func[i]();
+        fprintf(stderr, "passed.\n");
         mock_deinit();
     }
 
