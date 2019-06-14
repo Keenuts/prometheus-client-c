@@ -4,13 +4,29 @@
 #include <stdint.h>
 #include <unistd.h>
 
+enum pmc_error {
+    PMC_ERROR_ALLOCATION,
+    PMC_ERROR_OUTPUT,
+    PMC_ERROR_INVALID_KEY,
+    PMC_ERROR_COUNT
+};
+
 /*
  * this is the only function you need to implement.
  * I will use this function to send the HTTP request.
  * It can be a write to a socket, or a serial output, or anything.
  */
-void pmc_output_data(const void *bytes, size_t size);
+int pmc_output_data(const void *bytes, size_t size);
 
+/* error handling function to implement.
+ * This function can let the user handle pmc related errors.
+ * This function CAN return. You can either abort() or just log/disable
+ * the pmc client.
+ *
+ * parameters:
+ *  err: the error type encountered.
+ */
+void pmc_handle_error(enum pmc_error err);
 
 typedef enum {
     PM_NONE,
@@ -53,6 +69,26 @@ typedef struct {
  *  manual API allow metrics batching, histogram update and so on.
  */
 
+/* KILL-SWITCH:
+ * when an error occurs in pmc_* functions, the pmc_handle_error
+ * function is called.
+ * User can handle/log the error. In some cases, we might want to
+ * disable the pmc_client completely.
+ *
+ * Calling the kill-switch function will disable the following functions:
+ * - pmc_initialize      -> will always return NULL.
+ * - pmc_destroy         -> will free every metrics passed.
+ *
+ * - pmc_send            -> will do nothing, accepts NULL
+ * - pmc_add_gauge       -> will do nothing, accepts NULL
+ * - pmc_add_histogram   -> will do nothing, accepts NULL
+ * - pmc_update_hisogram -> will do nothing, accepts NULL
+ * - pmc_send_gauge      -> will do nothing, accepts NULL
+ * - pmc_send_histogram  -> will do nothing, accepts NULL
+ */
+void pmc_disable(void);
+
+
 /* BEGIN MANUAL API */
 
 /* initialize a metric set. Usually the first call */
@@ -67,7 +103,7 @@ pmc_metric_s* pmc_initialize(const char *jobname);
  *  name: the name of the metric. Valid characters: [A-Za-z0-9_] (not checked)
  *  value: the value of the metric.
  */
-void pmc_add_gauge(pmc_metric_s *m, const char* name, float value);
+int pmc_add_gauge(pmc_metric_s *m, const char* name, float value);
 
 /*
  * add an histogram to the metric set. Already existing histograms are not
@@ -80,11 +116,11 @@ void pmc_add_gauge(pmc_metric_s *m, const char* name, float value);
  *  buckets: array of floats. Each entry represents 1 bucket.
  *  values: the number of values in each bucket. (Not the sum of the previous)
  */
-void pmc_add_histogram(pmc_metric_s *m,
-                       const char *name,
-                       size_t size,
-                       const float *buckets,
-                       const float *values);
+int pmc_add_histogram(pmc_metric_s *m,
+                      const char *name,
+                      size_t size,
+                      const float *buckets,
+                      const float *values);
 
 /*
  * update a previously created histogram. WILL FAIL if no histogram with
@@ -99,10 +135,10 @@ void pmc_add_histogram(pmc_metric_s *m,
  *  size: the number of buckets. Also the size of the two following arrays.
  *  values: the number of values in each bucket. (Not the sum of the previous)
  */
-void pmc_update_histogram(pmc_metric_s *m,
-                          const char *name,
-                          size_t size,
-                          const float *values);
+int pmc_update_histogram(pmc_metric_s *m,
+                         const char *name,
+                         size_t size,
+                         const float *values);
 
 /*
  * send the HTTP request to the push gateway. The metric set is not invalidated
@@ -111,7 +147,7 @@ void pmc_update_histogram(pmc_metric_s *m,
  *
  * metric : the metric to send, previously created with pmc_initialize
  */
-void pmc_send(pmc_metric_s *metric);
+int pmc_send(pmc_metric_s *metric);
 
 /*
  * free a previously initialized metric set
@@ -130,7 +166,7 @@ void pmc_destroy(pmc_metric_s *metric);
  *
  * **jobname** and **name** characters must be [A-Za-z0-9_] (non checked)
  */
-void pmc_send_gauge(const char* job_name, const char* name, float value);
+int pmc_send_gauge(const char* job_name, const char* name, float value);
 
 /*
  * Sends an HTTP request containing only one histogram.
@@ -143,10 +179,10 @@ void pmc_send_gauge(const char* job_name, const char* name, float value);
  *
  * **jobname** and **name** characters must be [A-Za-z0-9_] (non checked)
  */
-void pmc_send_histogram(const char* jobname,
-                        const char* name,
-                        size_t size,
-                        const float *buckets,
-                        const float *values);
+int pmc_send_histogram(const char* jobname,
+                       const char* name,
+                       size_t size,
+                       const float *buckets,
+                       const float *values);
 
 #endif /* H_PROMETHEUS_CLIENT_ */
