@@ -265,3 +265,9 @@ int pmc_output_data(const void *bytes, size_t size)
 
     return 0;
 }
+
+void pmc_handle_error(enum pmc_error err)
+{
+    (void)err;
+    assert_eq(0, 1);
+}
