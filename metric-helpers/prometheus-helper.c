@@ -251,13 +251,14 @@ static void free_maps(struct pmc_maps *maps)
 
 static void parse_stat(struct pmc_stat *dst)
 {
-    memset(dst, 0, sizeof(*dst));
-
     int res;
+    char state = 0;
+    size_t *it = NULL;
+
+    memset(dst, 0, sizeof(*dst));
     FILE *f = fopen("/proc/self/stat", "r");
     if (f == NULL) { fprintf(stderr, "failed reading stat (1)\n"); return; };
 
-    char state = 0;
     res = fscanf(f, "%zu %s %c",
         &dst->pid,
         dst->process_name,
@@ -265,7 +266,7 @@ static void parse_stat(struct pmc_stat *dst)
     if (res != 3) { fprintf(stderr, "failed reading stat (2)\n"); return; };
     dst->state = char_to_pstate(state);
 
-    size_t *it = &dst->parent_pid;
+    it = &dst->parent_pid;
     for (; (uintptr_t)it < (uintptr_t)(dst + 1); it++) {
         res = fscanf(f, " %zu", it);
         if (res != 1) { fprintf(stderr, "failed reading stat (3)\n"); return; };
@@ -278,13 +279,16 @@ static void parse_meminfo(struct pmc_meminfo *out)
 {
     int res;
     size_t *ptr = (size_t*)out;
+    char suffix[3];
+    FILE *f = NULL;
+    size_t i;
+    unsigned long tmp;
+
     memset(out, 0, sizeof(*out));
-    FILE *f = fopen("/proc/meminfo", "r");
+    f = fopen("/proc/meminfo", "r");
     if (f == NULL) { fprintf(stderr, "failed to open /proc/meminfo\n"); }
 
-    char suffix[3];
-    for (size_t i = 0; i < sizeof(*out) / sizeof(size_t); i++) {
-        unsigned long tmp;
+    for (i = 0; i < sizeof(*out) / sizeof(size_t); i++) {
         res = fscanf(f, "%*s %lu %2s\n", &tmp, suffix);
         ptr[i] = (size_t)tmp;
 
@@ -312,11 +316,13 @@ float pmc_get_vsize(void)
 float pmc_get_anonymous_mappings_size(void)
 {
     struct pmc_maps maps;
-    parse_maps(&maps);
-
+    size_t i;
     float size = 0.f;
 
-    for (size_t i = 0; i < maps.count; i++) {
+    parse_maps(&maps);
+
+
+    for (i = 0; i < maps.count; i++) {
         if (maps.mappings[i].inode != 0) {
             continue;
         }
