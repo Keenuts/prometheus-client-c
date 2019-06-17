@@ -1,4 +1,4 @@
-CC = clang
+CC ?= clang
 CFLAGS = -Wall -Wextra -std=c89 -I$(CURDIR)
 
 OBJ= \

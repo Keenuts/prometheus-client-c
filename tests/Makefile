@@ -1,5 +1,5 @@
-CXX = clang++
-CXXFLAGS = -std=c++17 -Wall -Wextra -Weverything -I../ \
+CXX ?= clang++
+CXXFLAGS = -std=c++17 -Wall -Wextra -I../ \
            -Wno-c++98-compat-pedantic -Wno-old-style-cast -Wno-unused-variable \
 		   -Wno-missing-variable-declarations -g -O0
 CFLAGS += -I../
