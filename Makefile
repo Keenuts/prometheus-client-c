@@ -12,6 +12,9 @@ all: ${OBJ} tests
 tests:
 	$(MAKE) -C tests
 
-clean:
-	$(RM) ${OBJ}
+proper:
+	$(RM) ${OBJ} $(wildcard *.gcov *.gcno *.gcda)
+	$(MAKE) -C tests proper
+
+clean: proper
 	$(MAKE) -C tests clean
