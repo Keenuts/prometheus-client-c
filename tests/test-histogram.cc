@@ -56,3 +56,100 @@ CREATE_TEST(histogram, simple_manual)
 
     pmc_destroy(m);
 }
+
+CREATE_TEST(histogram, multiple_histogram_send)
+{
+    const char* NAMES[] = { "h0", "h1", "h2", "h3", "h4", "h5" };
+    const size_t BUCKET_COUNT = 100;
+    const size_t HIST_COUNT = sizeof(NAMES) / sizeof(NAMES[0]);
+
+    float buckets[BUCKET_COUNT];
+    float values[BUCKET_COUNT];
+    float total = 0.f;
+
+    for (size_t i = 0; i < BUCKET_COUNT; i++) {
+        buckets[i] = (float)i;
+        values[i] = (float)(BUCKET_COUNT - i);
+    }
+
+
+    pmc_metric_s m = pmc_initialize("multiple");
+    for (size_t i = 0; i < HIST_COUNT; i++) {
+        pmc_add_histogram(m, NAMES[i], BUCKET_COUNT, buckets, values);
+    }
+    pmc_send(m);
+
+    assert_eq(mock_histogram_get_count(), 6UL);
+
+    for (size_t i = 0; i < HIST_COUNT; i++) {
+        std::string name = std::string("multiple_") + NAMES[i];
+        assert_eq(mock_histogram_count_buckets(name), BUCKET_COUNT);
+        total = 0.f;
+
+        for (size_t i = 0; i < BUCKET_COUNT; i++) {
+            total += (float)(BUCKET_COUNT - i);
+            assert_eq(mock_histogram_get_bucket(name, (float)i), total);
+        }
+    }
+
+    pmc_destroy(m);
+}
+
+CREATE_TEST(histogram, multiple_histogram_update)
+{
+    const char* NAMES[] = { "h0", "h1", "h2", "h3", "h4", "h5" };
+    const size_t BUCKET_COUNT = 100;
+    const size_t HIST_COUNT = sizeof(NAMES) / sizeof(NAMES[0]);
+
+    float buckets[BUCKET_COUNT];
+    float values[BUCKET_COUNT];
+    float total = 0.f;
+
+    for (size_t i = 0; i < BUCKET_COUNT; i++) {
+        buckets[i] = (float)i;
+        values[i] = 0.f;
+    }
+
+    pmc_metric_s m = pmc_initialize("multiple");
+    for (size_t i = 0; i < HIST_COUNT; i++) {
+        pmc_add_histogram(m, NAMES[i], BUCKET_COUNT, buckets, values);
+    }
+    pmc_send(m);
+
+    /* check initial value for these histograms */
+    assert_eq(mock_histogram_get_count(), 6UL);
+    for (size_t i = 0; i < HIST_COUNT; i++) {
+        std::string name = std::string("multiple_") + NAMES[i];
+        assert_eq(mock_histogram_count_buckets(name), BUCKET_COUNT);
+
+        for (size_t i = 0; i < BUCKET_COUNT; i++) {
+            assert_eq(mock_histogram_get_bucket(name, (float)i), 0.f);
+        }
+    }
+
+    /* updating values & histograms */
+    for (size_t i = 0; i < BUCKET_COUNT; i++) {
+        values[i] = (float)(BUCKET_COUNT - i);
+    }
+
+    for (size_t i = 0; i < HIST_COUNT; i++) {
+        pmc_update_histogram(m, NAMES[i], BUCKET_COUNT, values);
+    }
+    pmc_send(m);
+
+    /* check the final values */
+    assert_eq(mock_histogram_get_count(), 6UL);
+    for (size_t i = 0; i < HIST_COUNT; i++) {
+        std::string name = std::string("multiple_") + NAMES[i];
+        assert_eq(mock_histogram_count_buckets(name), BUCKET_COUNT);
+
+        total = 0.f;
+        for (size_t i = 0; i < BUCKET_COUNT; i++) {
+            total += (float)(BUCKET_COUNT - i);
+            assert_eq(mock_histogram_get_bucket(name, (float)i), total);
+        }
+    }
+
+
+    pmc_destroy(m);
+}
