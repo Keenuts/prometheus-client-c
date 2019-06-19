@@ -414,6 +414,7 @@ int pmc_update_histogram(pmc_metric_s m,
     while (NULL != it) {
         item = (struct pmc_item_histogram*)it;
         if (it->type != PM_HISTOGRAM || 0 != strcmp(name, item->name)) {
+            it = it->next;
             continue;
         }
 
