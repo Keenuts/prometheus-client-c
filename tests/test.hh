@@ -1,10 +1,11 @@
 #ifndef H_TEST_
 #define H_TEST_
 
+#include <limits>
 #include <stdio.h>
 #include <stdlib.h>
 #include <type_traits>
-#include <limits>
+#include <utility>
 
 typedef void(*test_fptr)(void);
 
@@ -59,10 +60,30 @@ inline void assert_eq(float a, float b)
     }
 }
 
-#define ASSERT_TRUE(Cond)                                           \
-    if (!(Cond)) {                                                  \
-        fprintf(stderr, "condition failed: " #Cond "\n");           \
-        abort();                                                    \
+template<typename ...Args>
+inline void assert_true(bool cond_value, const char *cond_str, Args... args)
+{
+    if (cond_value) {
+        return;
     }
+
+    if constexpr (sizeof...(args) == 0) {
+        fprintf(stderr, "assert failed: '%s'\n", cond_str);
+    } else {
+        fprintf(stderr, "assert failed: '%s': ", cond_str);
+
+    /* first argument is forwarded, thus not EXPLICITLY a const char*.
+     * Disableing the warning for this case */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-security"
+        fprintf(stderr, std::forward<Args>(args)...);
+#pragma GCC diagnostic pop
+        fprintf(stderr, "\n");
+    }
+    abort();
+}
+
+#define ASSERT_TRUE(Cond, ...) \
+    assert_true((bool)(Cond), #Cond, __VA_ARGS__)
 
 #endif /* H_TEST_ */

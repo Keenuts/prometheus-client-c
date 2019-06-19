@@ -196,34 +196,38 @@ static bool parse_http(char *input,
 
     char *tmp = strtok_r(input, "\r\n", &state);
     /* first line MUST be valid. POST ... HTTP/1.0 */
-    ASSERT_TRUE(nullptr != tmp);
+    ASSERT_TRUE(nullptr != tmp, "http request ill-formed");
 
 
     while (nullptr != tmp && false == has_content_length) {
         std::string line(tmp);
         if (false == has_http_rq) {
             /* first line MUST be POST ... HTTP/1.0 */
-            ASSERT_TRUE(std::regex_match(line, match, re_rq));
-            ASSERT_TRUE(match.size() == 3);
+            ASSERT_TRUE(std::regex_match(line, match, re_rq),
+                        "Invalid http request header");
+            ASSERT_TRUE(match.size() == 3, "invalid http request header");
             out_hdr->is_post = match[1].str() == "POST";
             out_hdr->metric_name = match[2].str();
             has_http_rq = true;
         }
 
         if (std::regex_match(line, match, re_content_length)) {
-            ASSERT_TRUE(false == has_content_length);
+            ASSERT_TRUE(false == has_content_length,
+                        "too many content-length in HTTP request");
             has_content_length = true;
-            ASSERT_TRUE(match.size() == 2);
+            ASSERT_TRUE(match.size() == 2, "ill-formet content-length field");
             out_hdr->content_length = std::stoull(match[1].str());
         }
         else if (std::regex_match(line, match, re_content_type)) {
-            ASSERT_TRUE(false == has_content_type);
+            ASSERT_TRUE(false == has_content_type,
+                        "too many content-type field in HTTP request");
             has_content_type = true;
         }
         else if (std::regex_match(line, match, re_hostname)) {
-            ASSERT_TRUE(false == has_hostname);
+            ASSERT_TRUE(false == has_hostname,
+                        "too many hostname field in HTTP request");
             has_hostname = true;
-            ASSERT_TRUE(match.size() == 2);
+            ASSERT_TRUE(match.size() == 2, "ill-formed hostname field");
             out_hdr->hostname = match[1].str();
         }
 
@@ -231,7 +235,7 @@ static bool parse_http(char *input,
     };
 
     /* now body should begin, and should not be empty */
-    ASSERT_TRUE(nullptr != tmp);
+    ASSERT_TRUE(nullptr != tmp, "empty http body is invalid here");
     while (nullptr != tmp) {
         content_length += strlen(tmp) + 1;
         out_body.emplace_back(std::string(tmp));
@@ -241,7 +245,8 @@ static bool parse_http(char *input,
     /* missing content length will fail later. Just did not wanted to
      * trigger error on the content_length is the field was missing */
     if (has_content_length) {
-        ASSERT_TRUE(content_length == out_hdr->content_length);
+        ASSERT_TRUE(content_length == out_hdr->content_length,
+                    "HTTP header content-length and content length mismatch");
     }
 
     return has_hostname && has_content_length && has_content_type;
@@ -255,11 +260,11 @@ int pmc_output_data(const void *bytes, size_t size)
     buffer[size] = 0;
 
     struct http_hdr hdr;
-    ASSERT_TRUE(parse_http(buffer, &hdr, body));
-    ASSERT_TRUE(hdr.is_post);
-    ASSERT_TRUE(body.size() > 0);
+    ASSERT_TRUE(parse_http(buffer, &hdr, body), "failed to parse HTTP header");
+    ASSERT_TRUE(hdr.is_post, "HTTP header is not POST");
+    ASSERT_TRUE(body.size() > 0, "HTTP body is empty");
 
-    ASSERT_TRUE(parse_metrics(body));
+    ASSERT_TRUE(parse_metrics(body), "cannot parse metrics");
 
     free(buffer);
 
