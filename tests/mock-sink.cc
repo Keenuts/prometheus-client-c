@@ -33,12 +33,14 @@ void mock_init()
 {
     metrics_store = new std::unordered_map<std::string, std::pair<mtype_e, float>>;
     gauges = new std::unordered_map<std::string, float>;
+    histograms = new std::unordered_map<std::string, Histogram>;
 }
 
 void mock_deinit()
 {
     delete metrics_store;
     delete gauges;
+    delete histograms;
 }
 
 float mock_gauge_get_value(std::string name)
@@ -84,36 +86,50 @@ static mtype_e string2mtype(std::string s)
 
 static bool parse_histogram(std::list<std::string>& body)
 {
-    const std::regex re_metric_histo_bucket("([A-Za-z0-9_]+)\\{le=\"([0-9\\.]+)\"\\} +([0-9\\.]+)");
-    const std::regex re_metric_histo_count("([A-Za-z0-9_]+)_count +([0-9.]+)$");
-    const std::regex re_metric_histo_sum("([A-Za-z0-9_]+)_sum +([0-9.]+)$");
+    std::regex re_bucket("([A-Za-z0-9_]+)_bucket\\{le=\"([0-9\\.]+)\"\\}\\s+([0-9\\.]+)");
+    std::regex re_count("([A-Za-z0-9_]+)_count +([0-9.]+)$");
+    std::regex re_sum("([A-Za-z0-9_]+)_sum +([0-9.]+)$");
     std::smatch match;
 
-    std::string line = body.front();
-    body.pop_front();
     bool has_bucket = false;
     bool has_count = false;
     bool has_sum = false;
 
-    do {
-        if (std::regex_match(line, match, re_metric_histo_bucket)) {
+    Histogram histogram;
+    std::string name;
+
+    while (body.size() > 0 && !(has_bucket && has_count && has_sum))
+    {
+        std::string line = body.front();
+        body.pop_front();
+
+        if (std::regex_search(line, match, re_bucket)) {
             has_bucket = true;
+            ASSERT_TRUE(4 == match.size(), "incomplete histogram bucket");
+
+            name = match[1];
+            histogram.buckets_.push_back(std::stoul(match[2]));
+            histogram.values_.push_back(std::stoul(match[3]));
         }
-        else if (std::regex_match(line, match, re_metric_histo_count)) {
+        else if (std::regex_match(line, match, re_count)) {
             has_count = true;
+            ASSERT_TRUE(3 == match.size(), "invalid histogram count");
+            histogram.count_ = std::stoul(match[2]);
         }
-        else if (std::regex_match(line, match, re_metric_histo_sum)) {
+        else if (std::regex_match(line, match, re_sum)) {
             has_sum = true;
+            ASSERT_TRUE(3 == match.size(), "invalid histogram size");
+            histogram.sum_ = std::stoul(match[2]);
         }
         else {
             fprintf(stderr, "error at '%s': invalid histogram.\n", line.c_str());
             return false;
         }
+    }
 
-        line = body.front();
-        body.pop_front();
-    } while (body.size() > 0 && !(has_bucket && has_count && has_sum));
+    ASSERT_TRUE(has_bucket && has_count && has_sum, "incomplete histogram");
 
+    histograms->emplace(std::make_pair(name, histogram));
     return true;
 }
 

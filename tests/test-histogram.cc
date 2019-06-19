@@ -1,11 +1,14 @@
 #include "test.hh"
 #include "prometheus-client.h"
+#include "mock-sink.hh"
 
 CREATE_TEST(histogram, simple_send)
 {
     const float buckets[5] = { 1.f, 5.f, 10.f, 20.f, 50.f };
     const float values[5] =  { 2.f, 4.f, 9.f, 19.f, 49.f };
     pmc_send_histogram("test_hist", "histogram_1", 5, buckets, values);
+
+    assert_eq(mock_histogram_get_count(), 1UL);
 }
 
 CREATE_TEST(histogram, simple_manual)

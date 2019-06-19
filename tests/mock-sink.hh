@@ -11,7 +11,6 @@ size_t mock_gauge_get_count();
 
 float  mock_histogram_get_bucket(std::string name, float bucket);
 size_t mock_histogram_count_buckets(std::string name);
-size_t mock_histogram_count_buckets(std::string name);
 size_t mock_histogram_get_count();
 
 #endif /* H_MOCK_SINK_ */
