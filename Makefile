@@ -5,6 +5,8 @@ OBJ= \
 	prometheus-client.o \
 	metric-helpers/prometheus-helper.o
 
+.PHONY: tests
+
 all: ${OBJ} tests
 
 tests:
