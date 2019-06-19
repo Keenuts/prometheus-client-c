@@ -26,15 +26,20 @@ extern const char* __start_test_names;
 extern const char* __stop_test_names;
 
 template<typename T>
-static inline bool compare(T a, T b)
+static inline int compare(T a, T b)
 {
     /*
      * yes this IS ugly. But here we do not want an exact perfect check. We
      * just want to know if we outputed something close. Printf puts 6
      * decimals -> I compare 6.
      */
-    return !(a < b + 0.00001f && a > b - 0.000001f);
-
+    if (a < b - 0.000001f) {
+        return -1;
+    }
+    else if (a > b + 0.000001f) {
+        return 1;
+    }
+    return 0;
 }
 
 template<typename T>
@@ -54,7 +59,7 @@ inline void assert_eq(T a, T b)
 template<>
 inline void assert_eq(float a, float b)
 {
-    if (compare(a, b) == true) {
+    if (compare(a, b) != 0) {
         fprintf(stderr, "assert_eq: %f != %f.\n", (double)a, (double)b);
         abort();
     }

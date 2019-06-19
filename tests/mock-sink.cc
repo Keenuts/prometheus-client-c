@@ -18,7 +18,6 @@ typedef enum {
 
 struct Histogram
 {
-    std::string name;
     float count_;
     float sum_;
     std::vector<float> buckets_;
@@ -55,17 +54,26 @@ size_t mock_gauge_get_count()
 
 float mock_histogram_get_bucket(std::string name, float bucket)
 {
-    (void)name;
-    (void)bucket;
+    ASSERT_TRUE(histograms->count(name) == 1, "unknown histogram '%s'",
+                name.c_str());
+    Histogram const& h = (*histograms)[name];
 
-    return 0;
+    for (size_t i = 0; i < h.buckets_.size(); i++) {
+        if (compare(h.buckets_[i], bucket) == 0) {
+            return h.values_[i];
+        }
+    }
+
+    return 0.f;
 }
 
 size_t mock_histogram_count_buckets(std::string name)
 {
-    (void)name;
+    ASSERT_TRUE(histograms->count(name) == 1, "unknown histogram '%s'",
+                name.c_str());
+    Histogram const& h = (*histograms)[name];
 
-    return 0;
+    return h.buckets_.size();
 }
 
 size_t mock_histogram_get_count()
@@ -108,8 +116,8 @@ static bool parse_histogram(std::list<std::string>& body)
             ASSERT_TRUE(4 == match.size(), "incomplete histogram bucket");
 
             name = match[1];
-            histogram.buckets_.push_back(std::stoul(match[2]));
-            histogram.values_.push_back(std::stoul(match[3]));
+            histogram.buckets_.push_back(std::stof(match[2]));
+            histogram.values_.push_back(std::stof(match[3]));
         }
         else if (std::regex_match(line, match, re_count)) {
             has_count = true;
@@ -129,7 +137,8 @@ static bool parse_histogram(std::list<std::string>& body)
 
     ASSERT_TRUE(has_bucket && has_count && has_sum, "incomplete histogram");
 
-    histograms->emplace(std::make_pair(name, histogram));
+    assert(histogram.buckets_.size() == histogram.values_.size());
+    histograms->insert_or_assign(name, histogram);
     return true;
 }
 
