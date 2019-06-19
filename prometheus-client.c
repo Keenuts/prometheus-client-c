@@ -154,7 +154,7 @@ static int wbuffer_expand(wbuffer_t buffer, size_t min_expansion)
         return -1;
     }
 
-    buffer->size = new_size;
+    buffer->size = new_size - sizeof(*buffer);
     buffer->ptr = (char*)ptr;
     return 0;
 }
