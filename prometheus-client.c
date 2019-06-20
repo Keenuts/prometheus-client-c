@@ -87,7 +87,6 @@ struct wbuffer {
  * FIXME: I do not have a windows machine right now to implement the
  * variant for Windows. Might rework that bit later
  */
-static const size_t PAGE_SIZE = 4096;
 typedef struct wbuffer* wbuffer_t;
 
 static int pmc_disabled = 0;

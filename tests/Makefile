@@ -1,8 +1,11 @@
 CXX ?= clang++
 CXXFLAGS = -std=c++17 -Wall -Wextra -I../ \
-           -Wno-c++98-compat-pedantic -Wno-old-style-cast -Wno-unused-variable \
-		   -Wno-missing-variable-declarations -g -O0 -ftest-coverage -fprofile-arcs
-CFLAGS += -I../
+           -Wno-c++98-compat-pedantic -Wno-old-style-cast \
+		   -Wno-unused-variable -Wno-missing-variable-declarations -g -O0 \
+		   -ftest-coverage -fprofile-arcs \
+		   -DPAGE_SIZE=4096
+
+CFLAGS += -I../ -DPAGE_SIZE=4096
 LDLIBS=
 
 BASE_OBJ= \

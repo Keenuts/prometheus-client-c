@@ -1,5 +1,5 @@
 CC ?= clang
-CFLAGS = -Wall -Wextra -std=c89 -I$(CURDIR)
+CFLAGS = -Wall -Wextra -std=c89 -I$(CURDIR) -DPAGE_SIZE=4096
 
 OBJ= \
 	prometheus-client.o \
