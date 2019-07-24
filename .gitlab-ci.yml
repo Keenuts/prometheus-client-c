@@ -1,0 +1,14 @@
+image: gcc
+
+build:
+  stage: build
+  script:
+    - make -B tests CC=gcc CXX=g++
+  artifacts:
+    untracked: true
+
+pmc-tests:
+  script:
+    - ./tests/pmc-tests
+  dependencies:
+    - build
